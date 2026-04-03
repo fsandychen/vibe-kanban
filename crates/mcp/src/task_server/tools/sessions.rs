@@ -21,6 +21,10 @@ struct CreateSessionRequest {
     executor: Option<String>,
     #[schemars(description = "Optional display name for the session")]
     name: Option<String>,
+    #[schemars(
+        description = "Optional agent ID to launch the executor in agent mode (e.g. 'feitian', 'yulei', 'shenshu'). Maps to --agent flag for Claude Code."
+    )]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +32,7 @@ struct CreateSessionPayload {
     workspace_id: Uuid,
     executor: Option<String>,
     name: Option<String>,
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -75,6 +80,10 @@ struct RunCodingAgentInSessionRequest {
     session_id: Uuid,
     #[schemars(description = "Prompt for the coding agent")]
     prompt: String,
+    #[schemars(
+        description = "Optional agent ID to launch the executor in agent mode (e.g. 'feitian', 'yulei', 'shenshu'). Maps to --agent flag for Claude Code. Overrides the agent_id set at session creation."
+    )]
+    agent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +158,7 @@ impl McpServer {
             workspace_id,
             executor,
             name,
+            agent_id,
         }): Parameters<CreateSessionRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let workspace_id = match self.resolve_workspace_id(workspace_id) {
@@ -170,6 +180,14 @@ impl McpServer {
                 }
             }),
             name: name.and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }),
+            agent_id: agent_id.and_then(|value| {
                 let trimmed = value.trim();
                 if trimmed.is_empty() {
                     None
@@ -257,9 +275,11 @@ impl McpServer {
     )]
     async fn run_session_prompt(
         &self,
-        Parameters(RunCodingAgentInSessionRequest { session_id, prompt }): Parameters<
-            RunCodingAgentInSessionRequest,
-        >,
+        Parameters(RunCodingAgentInSessionRequest {
+            session_id,
+            prompt,
+            agent_id,
+        }): Parameters<RunCodingAgentInSessionRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -284,10 +304,15 @@ impl McpServer {
             );
         }
 
-        let executor_config = match Self::executor_config_payload_for_session(&session) {
-            Ok(config) => config,
-            Err(error_result) => return Ok(Self::tool_error(error_result)),
-        };
+        let resolved_agent_id = agent_id.and_then(|v| {
+            let trimmed = v.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        });
+        let executor_config =
+            match Self::executor_config_payload_for_session(&session, resolved_agent_id) {
+                Ok(config) => config,
+                Err(error_result) => return Ok(Self::tool_error(error_result)),
+            };
 
         let payload = FollowUpPayload {
             prompt: prompt.to_string(),
@@ -359,12 +384,13 @@ impl McpServer {
 impl McpServer {
     fn executor_config_payload_for_session(
         session: &Session,
+        agent_id: Option<String>,
     ) -> Result<ExecutorConfigPayload, super::ToolError> {
         Ok(ExecutorConfigPayload {
             executor: Self::normalize_executor_name(session.executor.as_deref())?,
             variant: None,
             model_id: None,
-            agent_id: None,
+            agent_id,
             reasoning_id: None,
             permission_policy: None,
         })
