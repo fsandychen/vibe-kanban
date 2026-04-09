@@ -7,12 +7,13 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
+    coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     execution_process_repo_state::ExecutionProcessRepoState,
 };
 use deployment::Deployment;
 use futures_util::{StreamExt, TryStreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
@@ -273,6 +274,24 @@ async fn handle_execution_processes_by_session_ws(
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+struct ExecutionSummaryResponse {
+    summary: Option<String>,
+}
+
+async fn get_execution_process_summary(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<ExecutionSummaryResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let turn =
+        CodingAgentTurn::find_by_execution_process_id(pool, execution_process.id).await?;
+    let summary = turn.and_then(|t| t.summary);
+    Ok(ResponseJson(ApiResponse::success(ExecutionSummaryResponse {
+        summary,
+    })))
+}
+
 async fn get_execution_process_repo_states(
     Extension(execution_process): Extension<ExecutionProcess>,
     State(deployment): State<DeploymentImpl>,
@@ -287,6 +306,7 @@ pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     let workspace_id_router = Router::new()
         .route("/", get(get_execution_process_by_id))
         .route("/stop", post(stop_execution_process))
+        .route("/summary", get(get_execution_process_summary))
         .route("/repo-states", get(get_execution_process_repo_states))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))

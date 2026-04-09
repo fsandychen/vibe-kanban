@@ -365,6 +365,22 @@ impl McpServer {
 
         let is_finished = execution_process.status != ExecutionProcessStatus::Running;
 
+        // Fetch the final assistant message when execution has completed
+        let final_message = if is_finished {
+            #[derive(Deserialize)]
+            struct SummaryResp {
+                summary: Option<String>,
+            }
+            let summary_url =
+                self.url(&format!("/api/execution-processes/{execution_id}/summary"));
+            self.send_json::<SummaryResp>(self.client.get(&summary_url))
+                .await
+                .ok()
+                .and_then(|r| r.summary)
+        } else {
+            None
+        };
+
         let execution_process_value = match Self::serialize_execution_process(&execution_process) {
             Ok(value) => value,
             Err(error_result) => return Ok(Self::tool_error(error_result)),
@@ -376,7 +392,7 @@ impl McpServer {
             status: Self::execution_process_status_label(&execution_process.status).to_string(),
             is_finished,
             execution: execution_process_value,
-            final_message: None,
+            final_message,
         })
     }
 }
