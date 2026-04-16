@@ -1015,6 +1015,52 @@ impl RemoteClient {
             .await
     }
 
+    // ── Issue Comments ─────────────────────────────────────────────────
+
+    /// Lists comments for an issue.
+    pub async fn list_issue_comments(
+        &self,
+        issue_id: Uuid,
+    ) -> Result<api_types::ListIssueCommentsResponse, RemoteClientError> {
+        self.get_authed(&format!("/v1/issue_comments?issue_id={issue_id}"))
+            .await
+    }
+
+    /// Gets a single issue comment by ID.
+    pub async fn get_issue_comment(
+        &self,
+        issue_comment_id: Uuid,
+    ) -> Result<api_types::IssueComment, RemoteClientError> {
+        self.get_authed(&format!("/v1/issue_comments/{issue_comment_id}"))
+            .await
+    }
+
+    /// Creates a new issue comment.
+    pub async fn create_issue_comment(
+        &self,
+        request: &api_types::CreateIssueCommentRequest,
+    ) -> Result<MutationResponse<api_types::IssueComment>, RemoteClientError> {
+        self.post_authed("/v1/issue_comments", Some(request)).await
+    }
+
+    /// Deletes an issue comment.
+    pub async fn delete_issue_comment(
+        &self,
+        issue_comment_id: Uuid,
+    ) -> Result<DeleteResponse, RemoteClientError> {
+        let res = self
+            .send(
+                reqwest::Method::DELETE,
+                &format!("/v1/issue_comments/{issue_comment_id}"),
+                true,
+                None::<&()>,
+            )
+            .await?;
+        res.json::<DeleteResponse>()
+            .await
+            .map_err(|e| RemoteClientError::Serde(e.to_string()))
+    }
+
     /// Used for fetching from presigned Azure SAS URLs.
     pub async fn download_from_url(&self, url: &str) -> Result<Vec<u8>, RemoteClientError> {
         let res = self.http.get(url).send().await.map_err(map_reqwest_error)?;
