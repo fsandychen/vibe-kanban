@@ -263,6 +263,20 @@ impl Deployment for LocalDeployment {
             PrMonitorService::spawn(db, analytics, container, rc, pr_sync_notify.clone()).await;
         }
 
+        // Spawn AutomationService if automation-rules.toml is present.
+        if let Some(auto_config) =
+            services::services::automation_config::AutomationConfig::load()
+        {
+            let auto_db = db.clone();
+            let auto_rc = remote_client.clone().ok();
+            services::services::automation::AutomationService::spawn(
+                auto_db,
+                auto_rc,
+                auto_config,
+            )
+            .await;
+        }
+
         let deployment = Self {
             config,
             user_id,
